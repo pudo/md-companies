@@ -114,13 +114,13 @@ def fetch_latest():
                 data_url = link
 
     file_name = os.path.basename(data_url)
-    with NamedTemporaryFile(suffix=file_name) as fh:
+    with open(file_name, 'w') as fh:
         print "Downloading:", data_url
         res = requests.get(data_url, stream=True)
         for chunk in res.iter_content(8000):
             fh.write(chunk)
 
-        load_file(fh.name)
+    load_file(file_name)
 
 
 if __name__ == '__main__':
