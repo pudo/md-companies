@@ -124,5 +124,5 @@ def fetch_latest():
 
 
 if __name__ == '__main__':
-    # fetch_latest()
-    load_file('/Users/fl/Downloads/company_20.11.17.xlsx')
+    fetch_latest()
+    # load_file('/Users/fl/Downloads/company_20.11.17.xlsx')
