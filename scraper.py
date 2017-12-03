@@ -93,7 +93,7 @@ def insert_row(index, row, unlicensed, licensed):
         })
 
     companies_table.insert(row)
-    print index, row.get("IDNO"), name
+    # print index, row.get("IDNO"), name
 
 
 def dump_csv(table, name):
