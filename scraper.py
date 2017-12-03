@@ -57,6 +57,7 @@ def subfield(row, field):
 
 def insert_row(index, row, unlicensed, licensed):
     row['id'] = index
+    idno = row.get(u'IDNO')
     name = row.get(u'Denumirea_completă')
     if name is None:
         return
@@ -64,12 +65,18 @@ def insert_row(index, row, unlicensed, licensed):
     if date is not None:
         row[u'Data_înregistrării'] = date.date().isoformat()
 
+    base = {
+        'Company_IDNO': idno,
+        'Company_ID': index,
+        'Company_Name': name
+    }
+
     for item in subfield(row, 'Genuri_de_activitate_nelicentiate'):
         ctx = unlicensed.get(item)
         if ctx is None:
             continue
         ctx = dict(ctx)
-        ctx['company_id'] = index
+        ctx.update(base)
         unlicensed_table.insert(ctx)
 
     for item in subfield(row, 'Genuri_de_activitate_licentiate'):
@@ -77,20 +84,18 @@ def insert_row(index, row, unlicensed, licensed):
         if ctx is None:
             continue
         ctx = dict(ctx)
-        ctx['company_id'] = index
+        ctx.update(base)
         licensed_table.insert(ctx)
 
     for item in subfield(row, 'Lista_fondatorilor'):
-        founders_table.insert({
-            'company_id': index,
-            'name': item
-        })
+        data = base.copy()
+        data['Founder'] = item
+        founders_table.insert(data)
 
     for item in subfield(row, u'Lista_conducătorilor'):
-        directors_table.insert({
-            'company_id': index,
-            'name': item
-        })
+        data = base.copy()
+        data['Director'] = item
+        directors_table.insert(data)
 
     companies_table.insert(row)
     # print index, row.get("IDNO"), name
