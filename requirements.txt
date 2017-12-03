@@ -2,3 +2,5 @@ requests
 openpyxl
 dataset
 lxml
+morphium
+unicodecsv

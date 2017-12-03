@@ -3,10 +3,21 @@
 import os
 import dataset
 import requests
+from unicodecsv import DictWriter
 from collections import OrderedDict
-from tempfile import NamedTemporaryFile
+# from tempfile import NamedTemporaryFile
 from lxml import html
 from openpyxl import load_workbook
+from morphium import Archive
+
+
+archive = Archive(bucket='archive.pudo.org', prefix='md-companies')
+db = dataset.connect('sqlite:///data.sqlite')
+companies_table = db.get_table('companies', primary_id=False)
+unlicensed_table = db.get_table('unlicensed', primary_id=False)
+licensed_table = db.get_table('licensed', primary_id=False)
+directors_table = db.get_table('directors', primary_id=False)
+founders_table = db.get_table('founders', primary_id=False)
 
 URL = 'http://date.gov.md/ckan/en/dataset/11736-date-din-registrul-de-stat-al-unitatilor-de-drept-privind-intreprinderile-inregistrate-in-repu'  # noqa
 
@@ -35,15 +46,66 @@ def subfield(row, field):
     value = row.pop(field, None)
     if value is None:
         return
+    if isinstance(value, long):
+        yield unicode(long)
+        return
     for item in value.split(', '):
         item = item.strip()
         if len(item):
             yield item
 
 
+def insert_row(index, row, unlicensed, licensed):
+    row['id'] = index
+    name = row.get(u'Denumirea_completă')
+    if name is None:
+        return
+    date = row.pop(u'Data_înregistrării')
+    if date is not None:
+        row[u'Data_înregistrării'] = date.date().isoformat()
+
+    for item in subfield(row, 'Genuri_de_activitate_nelicentiate'):
+        ctx = unlicensed.get(item)
+        if ctx is None:
+            continue
+        ctx = dict(ctx)
+        ctx['company_id'] = index
+        unlicensed_table.insert(ctx)
+
+    for item in subfield(row, 'Genuri_de_activitate_licentiate'):
+        ctx = licensed.get(item)
+        if ctx is None:
+            continue
+        ctx = dict(ctx)
+        ctx['company_id'] = index
+        licensed_table.insert(ctx)
+
+    for item in subfield(row, 'Lista_fondatorilor'):
+        founders_table.insert({
+            'company_id': index,
+            'name': item
+        })
+
+    for item in subfield(row, u'Lista_conducătorilor'):
+        directors_table.insert({
+            'company_id': index,
+            'name': item
+        })
+
+    companies_table.insert(row)
+    print index, row.get("IDNO"), name
+
+
+def dump_csv(table, name):
+    with open(name, 'w') as fh:
+        writer = DictWriter(fh, fieldnames=table.columns)
+        writer.writeheader()
+        for row in table:
+            writer.writerow(row)
+
+
 def load_file(file_name):
     book = load_workbook(file_name, read_only=True, data_only=True)
-    db = dataset.connect('sqlite:///data.sqlite')
 
     unlicensed = {}
     for row in sheet_rows(book, 'Clasificare nelicentiate'):
@@ -53,53 +115,31 @@ def load_file(file_name):
     for row in sheet_rows(book, 'Clasificare licentiate'):
         licensed[str(row.get('ID'))] = row
 
-    table = db.get_table('data', primary_id=False)
-    table.drop()
-    unlicensed_table = db.get_table('unlicensed', primary_id=False)
+    companies_table.drop()
     unlicensed_table.drop()
-    licensed_table = db.get_table('licensed', primary_id=False)
     licensed_table.drop()
-    directors_table = db.get_table('directors', primary_id=False)
     directors_table.drop()
-    founders_table = db.get_table('founders', primary_id=False)
     founders_table.drop()
+
     for index, row in enumerate(sheet_rows(book, 'RSUD'), 1):
-        row['id'] = index
-        date = row.pop(u'Data_înregistrării')
-        if date is not None:
-            row[u'Data_înregistrării'] = date.date().isoformat()
+        with db:
+            insert_row(index, row, unlicensed, licensed)
 
-        for item in subfield(row, 'Genuri_de_activitate_nelicentiate'):
-            ctx = unlicensed.get(item)
-            if ctx is None:
-                continue
-            ctx = dict(ctx)
-            ctx['company_id'] = index
-            unlicensed_table.insert(ctx)
-
-        for item in subfield(row, 'Genuri_de_activitate_licentiate'):
-            ctx = licensed.get(item)
-            if ctx is None:
-                continue
-            ctx = dict(ctx)
-            ctx['company_id'] = index
-            licensed_table.insert(ctx)
-
-        for item in subfield(row, 'Lista_fondatorilor'):
-            founders_table.insert({
-                'company_id': index,
-                'name': item
-            })
-
-        for item in subfield(row, u'Lista_conducătorilor'):
-            directors_table.insert({
-                'company_id': index,
-                'name': item
-            })
-
-        # print row
-        table.insert(row)
-        # print '> ', row.get(u'Denumirea_completă')
+    # send the results to an S3 bucket:
+    meta = db.get_table('data')
+    meta.drop()
+    tables = ('licensed', 'unlicensed', 'founders', 'directors', 'companies')
+    for table in tables:
+        file_name = '%s.csv' % table
+        print "Dump CSV:", file_name
+        dump_csv(db[table], file_name)
+        url = archive.upload_file(file_name)
+        meta.upsert({
+            'name': table,
+            'file_name': file_name,
+            'url': url
+        }, ['name'])
+        os.unlink(file_name)
 
 
 def fetch_latest():
@@ -121,6 +161,7 @@ def fetch_latest():
             fh.write(chunk)
 
     load_file(file_name)
+    os.unlink(file_name)
 
 
 if __name__ == '__main__':
