@@ -1,5 +1,6 @@
 # coding: utf-8
 import os
+import six
 import dataset
 import requests
 from unicodecsv import DictWriter
@@ -29,7 +30,7 @@ def sheet_rows(book, name):
         if headers is None:
             headers = []
             for header, idx in enumerate(row):
-                if header is None:
+                if not isinstance(header, six.string_types):
                     header = 'column_%s' % idx
                 if '(' in header:
                     header, _ = header.split('(')
