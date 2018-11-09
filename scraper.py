@@ -1,5 +1,4 @@
 # coding: utf-8
-
 import os
 import dataset
 import requests
@@ -23,13 +22,15 @@ URL = 'http://date.gov.md/ckan/en/dataset/11736-date-din-registrul-de-stat-al-un
 
 
 def sheet_rows(book, name):
-    sheet = book.get_sheet_by_name(name)
+    sheet = book[name]
     headers = None
     for row in sheet.rows:
         row = [c.value for c in row]
         if headers is None:
             headers = []
-            for header in row:
+            for header, idx in enumerate(row):
+                if header is None:
+                    header = 'column_%s' % idx
                 if '(' in header:
                     header, _ = header.split('(')
                 if '/' in header:
@@ -46,8 +47,8 @@ def subfield(row, field):
     value = row.pop(field, None)
     if value is None:
         return
-    if isinstance(value, long):
-        yield unicode(long)
+    if isinstance(value, (int, float)):
+        yield str(value)
         return
     for item in value.split(', '):
         item = item.strip()
@@ -110,7 +111,10 @@ def dump_csv(table, name):
 
 
 def load_file(file_name):
-    book = load_workbook(file_name, read_only=True, data_only=True)
+    book = load_workbook(file_name,
+                         read_only=True,
+                         data_only=True,
+                         guess_types=False)
 
     unlicensed = {}
     for row in sheet_rows(book, 'Clasificare nelicentiate'):
@@ -136,7 +140,7 @@ def load_file(file_name):
     tables = ('licensed', 'unlicensed', 'founders', 'directors', 'companies')
     for table in tables:
         file_name = '%s.csv' % table
-        print "Dump CSV:", file_name
+        print("Dump CSV: %s" % file_name)
         dump_csv(db[table], file_name)
         url = archive.upload_file(file_name)
         meta.upsert({
@@ -159,8 +163,8 @@ def fetch_latest():
                 data_url = link
 
     file_name = os.path.basename(data_url)
-    with open(file_name, 'w') as fh:
-        print "Downloading:", data_url
+    with open(file_name, 'wb') as fh:
+        print("Downloading: %s" % data_url)
         res = requests.get(data_url, stream=True)
         for chunk in res.iter_content(8000):
             fh.write(chunk)
